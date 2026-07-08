@@ -9,7 +9,7 @@ Password-gated photo gallery. Next.js 14 (App Router) on Vercel, with **Vercel B
 | `/` | Bio + password form. Correct `SITE_PASSWORD` sets an httpOnly cookie and redirects to `/gallery`. Wrong password shows an inline error without a reload. Also shows a rotating blurred teaser image. |
 | `/gallery` | Image grid with captions, "Recently added" badges (< 7 days), unique-session view counters, and a cosmetic 24h countdown. **Unauthenticated visitors get server-side-blurred images only** — the full-resolution bytes never leave the server, so the blur cannot be removed in devtools. |
 | `/guestbook` | Name + message form (stored in KV, newest first). Redirects to `/` unless the site cookie is present. |
-| `/upload` | Admin-only (separate `ADMIN_PASSWORD`, separate cookie). Drag-and-drop or file-picker upload + caption. File goes to Vercel Blob; `{id, url, caption, contentType, uploadedAt}` is prepended to the `images` list in KV. |
+| `/upload` | Admin-only (separate `ADMIN_PASSWORD`, separate cookie). Drag-and-drop or file-picker upload + caption. File goes to Vercel Blob; `{id, url, caption, contentType, uploadedAt}` is prepended to the `images` list in KV. Also shows a "Sync Google Drive now" button when Drive auto-import is configured (see below). |
 
 ## How auth works
 
@@ -22,6 +22,33 @@ Password-gated photo gallery. Next.js 14 (App Router) on Vercel, with **Vercel B
 - `images` — list of JSON `{id, url, caption, contentType, uploadedAt}`, newest first
 - `views:{id}` — set of session ids (unique-session view counting)
 - `guestbook` — list of JSON `{name, message, timestamp}`, newest first
+- `drive:imported` — set of Google Drive file ids already imported (dedup for auto-sync)
+
+## Auto-import from Google Drive
+
+Drop a photo into a connected Google Drive folder and it shows up in the gallery without touching `/upload` — a scheduled job (plus a manual "Sync now" button) polls the folder, downloads anything new, and stores it exactly like a manual upload. The **caption is taken from the filename** (`quad-attempt-landing.jpg` → "quad attempt landing"), since there's no UI step to type one — rename the file before dropping it in if you want a specific caption.
+
+This is optional: the site works without it, and `/upload`'s manual form is unaffected either way.
+
+### Setup
+
+1. **Create a Google Cloud project** at https://console.cloud.google.com (or reuse one) and enable the **Google Drive API** (APIs & Services → Library → search "Google Drive API" → Enable).
+2. **Create a service account**: IAM & Admin → Service Accounts → Create Service Account. No roles/permissions needed at the project level — access is granted per-folder in step 4.
+3. **Create a key** for that service account: open it → Keys tab → Add Key → Create new key → JSON. This downloads a `.json` file — you need two fields from it: `client_email` and `private_key`.
+4. **Share the Drive folder** you want to watch with that service account's `client_email` (right-click the folder in Drive → Share → paste the email → Viewer is enough).
+5. **Get the folder ID**: open the folder in Drive, copy the last segment of the URL — `https://drive.google.com/drive/folders/<FOLDER_ID>`.
+6. **Set the environment variables** on the Vercel project:
+   - `GOOGLE_SERVICE_ACCOUNT_EMAIL` — the `client_email` from the JSON key
+   - `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` — the `private_key` from the JSON key, pasted as-is (Vercel's env var UI handles the embedded newlines fine)
+   - `GOOGLE_DRIVE_FOLDER_ID` — the folder ID from step 5
+   - `CRON_SECRET` — any random string (`openssl rand -hex 32`); this is what lets Vercel's own scheduled invocations call the sync endpoint without needing your admin password
+7. **Redeploy.** `vercel.json` already schedules `/api/drive/sync` every 15 minutes.
+
+### A note on cron frequency
+
+Vercel's Hobby (free) plan restricts how often scheduled Cron Jobs actually fire — check your plan's current limits in the Vercel dashboard's Cron Jobs docs/settings, since this has changed over time and a Hobby project may only run the schedule once a day regardless of what's in `vercel.json`. Either way, the **"Sync Google Drive now" button on `/upload`** hits the same endpoint on demand and works regardless of plan, so you're never actually stuck waiting — drop a file in Drive, click the button, it's in the gallery.
+
+Each sync run imports at most 5 new files (to stay well under the function's time limit); anything beyond that picks up on the next run or button click.
 
 ## Deploy to Vercel
 

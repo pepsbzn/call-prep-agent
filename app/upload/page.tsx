@@ -2,6 +2,7 @@ import Link from "next/link";
 import { isAdminAuthed } from "@/lib/auth";
 import AdminPasswordForm from "@/components/AdminPasswordForm";
 import UploadForm from "@/components/UploadForm";
+import DriveSyncButton from "@/components/DriveSyncButton";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,10 @@ export default function UploadPage() {
       </h1>
 
       {authed ? (
-        <UploadForm />
+        <>
+          {process.env.GOOGLE_DRIVE_FOLDER_ID && <DriveSyncButton />}
+          <UploadForm />
+        </>
       ) : (
         <>
           <p className="muted">Admin only. This is not the door you&apos;re looking for.</p>
